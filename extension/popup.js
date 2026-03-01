@@ -1,108 +1,218 @@
-const readBtn  = document.getElementById('readBtn');
-const copyBtn  = document.getElementById('copyBtn');
-const statusEl = document.getElementById('status');
-const htmlPanel = document.getElementById('htmlPanel');
-const mdPanel   = document.getElementById('markdownPanel');
-const ollamaPanel = document.getElementById('ollamaPanel');
-const ollamaQuestion = document.getElementById('ollamaQuestion');
-const ollamaAskBtn = document.getElementById('ollamaAskBtn');
-const ollamaResponse = document.getElementById('ollamaResponse');
-const tabs      = document.querySelectorAll('.tab');
+const statusEl      = document.getElementById('status');
+const chatArea      = document.getElementById('chatArea');
+const welcome       = document.getElementById('welcome');
+const userInput     = document.getElementById('userInput');
+const sendBtn       = document.getElementById('sendBtn');
+const modelBadge    = document.getElementById('modelBadge');
+const modelPicker   = document.getElementById('modelPicker');
+const modelDropdown = document.getElementById('modelDropdown');
+const modelFilter   = document.getElementById('modelFilter');
+const modelList     = document.getElementById('modelList');
+const refreshBtn    = document.getElementById('refreshBtn');
+const faviconEl     = document.getElementById('favicon');
+const settingsBtn   = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const inputArea     = document.querySelector('.input-area');
 
-let currentHtml     = '';
-let currentMarkdown = '';
-let activeTab       = 'html';
-let ollamaRunning   = false;
-let availableModels = [];
-const DEFAULT_MODEL = 'gemma3:1b';
+// Set favicon from the active tab
+chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+  if (tab?.favIconUrl) faviconEl.src = tab.favIconUrl;
+});
 
-// Fetch available models on startup
+let currentMarkdown     = '';
+let isBusy              = false;
+let availableModels     = [];
+let modelToUse          = 'gemma3:1b';
+let conversationHistory = [];  // [{role, content}]
+
+const DEFAULT_MODEL  = 'gemma3:1b';
+const STORAGE_KEY    = 'sucof_preferred_model';
+
+// ── Model dropdown ───────────────────────────────────────────────────────────
+
+function buildDropdown(filter = '') {
+  modelList.innerHTML = '';
+  const q = filter.toLowerCase();
+  for (const name of availableModels) {
+    if (q && !name.toLowerCase().includes(q)) continue;
+    const btn = document.createElement('button');
+    btn.className = 'model-option' + (name === modelToUse ? ' active' : '');
+    btn.dataset.model = name;
+    btn.innerHTML = `<span>${name}</span><span class="model-check">✓</span>`;
+    btn.addEventListener('click', () => {
+      modelToUse = name;
+      localStorage.setItem(STORAGE_KEY, name);
+      modelBadge.textContent = name;
+      modelDropdown.classList.remove('open');
+      buildDropdown();
+    });
+    modelList.appendChild(btn);
+  }
+}
+
+modelFilter.addEventListener('input', () => buildDropdown(modelFilter.value));
+
+modelBadge.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (availableModels.length === 0) return;
+  const opening = !modelDropdown.classList.contains('open');
+  modelDropdown.classList.toggle('open');
+  if (opening) {
+    modelFilter.value = '';
+    buildDropdown();
+    modelFilter.focus();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!modelPicker.contains(e.target)) modelDropdown.classList.remove('open');
+});
+
+// ── Connect to Ollama on startup ─────────────────────────────────────────────
+
 (async () => {
   try {
-    const response = await fetch('http://localhost:11434/api/tags');
-    if (response.ok) {
-      const data = await response.json();
-      availableModels = data.models?.map(m => m.name) || [];
-      console.log('Available models:', availableModels);
-      if (availableModels.length === 0) {
-        statusEl.textContent = 'No Ollama models available. Pull one first.';
+    const res = await fetch('http://localhost:11434/api/tags');
+    if (!res.ok) throw new Error('bad status');
+    const data = await res.json();
+    availableModels = data.models?.map(m => m.name) ?? [];
+
+    if (availableModels.length === 0) {
+      statusEl.textContent = 'No Ollama models found — pull one first.';
+      modelBadge.textContent = 'no models';
+    } else {
+      // Prefer saved preference, then default, then first available
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && availableModels.includes(saved)) {
+        modelToUse = saved;
+      } else if (availableModels.includes(DEFAULT_MODEL)) {
+        modelToUse = DEFAULT_MODEL;
+      } else {
+        modelToUse = availableModels[0];
       }
+      modelBadge.textContent = modelToUse;
+      buildDropdown();
+      statusEl.textContent = 'Ready · send a message to get started';
     }
-  } catch (err) {
-    console.error('Failed to fetch models:', err);
-    statusEl.textContent = 'Ollama server not running.';
+  } catch {
+    statusEl.textContent = 'Ollama not running — start it first.';
+    modelBadge.textContent = 'offline';
   }
 })();
 
-// ── Tab switching ────────────────────────────────────────────────────────────
+// ── Settings ──────────────────────────────────────────────────────────────────
 
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    activeTab = tab.dataset.tab;
+// Add fields here to expand the settings panel
+const SETTINGS_FIELDS = [
+  { key: 'token',     label: 'Token',      type: 'password', placeholder: 'xoxb-…' },
+  { key: 'channelId', label: 'Channel ID', type: 'text',     placeholder: 'C0XXXXXXXX' },
+];
 
-    tabs.forEach(t => t.classList.toggle('active', t === tab));
-    htmlPanel.classList.toggle('active', activeTab === 'html');
-    mdPanel.classList.toggle('active',   activeTab === 'markdown');
-    ollamaPanel.classList.toggle('active', activeTab === 'ollama');
+const SETTINGS_STORAGE_KEY = 'sucof_settings';
 
-    if (activeTab === 'markdown' && currentHtml && !currentMarkdown) {
-      convertToMarkdown();
-    }
-  });
-});
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {}; }
+  catch { return {}; }
+}
 
-// ── Read page ────────────────────────────────────────────────────────────────
+function saveSettings(values) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+}
 
-readBtn.addEventListener('click', async () => {
-  statusEl.textContent = 'Reading…';
-  resetPanels();
+function renderSettingsForm() {
+  settingsPanel.innerHTML = '';
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const saved = loadSettings();
+  const fields = document.createElement('div');
+  fields.className = 'settings-fields';
 
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => document.documentElement.outerHTML,
-    });
+  for (const field of SETTINGS_FIELDS) {
+    const group = document.createElement('div');
+    group.className = 'settings-field';
 
-    currentHtml     = results[0].result;
-    currentMarkdown = ''; // invalidate cached markdown
+    const label = document.createElement('label');
+    label.htmlFor = `setting-${field.key}`;
+    label.className = 'settings-label';
+    label.textContent = field.label;
 
-    htmlPanel.textContent = currentHtml;
-    htmlPanel.classList.remove('empty');
+    const input = document.createElement('input');
+    input.type = field.type;
+    input.id = `setting-${field.key}`;
+    input.className = 'settings-input';
+    input.placeholder = field.placeholder || '';
+    input.value = saved[field.key] || '';
 
-    statusEl.textContent =
-      `Loaded ${currentHtml.length.toLocaleString()} chars from: ${tab.url}`;
-
-    // If the markdown tab is already visible, convert immediately
-    if (activeTab === 'markdown') convertToMarkdown();
-
-  } catch (err) {
-    htmlPanel.textContent = `Error: ${err.message}`;
-    htmlPanel.classList.remove('empty');
-    statusEl.textContent = 'Failed to read page HTML.';
+    group.appendChild(label);
+    group.appendChild(input);
+    fields.appendChild(group);
   }
+  settingsPanel.appendChild(fields);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'settings-save-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    const values = {};
+    for (const field of SETTINGS_FIELDS) {
+      const input = document.getElementById(`setting-${field.key}`);
+      if (input) values[field.key] = input.value.trim();
+    }
+    saveSettings(values);
+    saveBtn.classList.add('saved');
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => { saveBtn.classList.remove('saved'); saveBtn.textContent = 'Save'; }, 1500);
+  });
+  settingsPanel.appendChild(saveBtn);
+}
+
+const headerName = document.querySelector('.header-name');
+
+function openSettings() {
+  renderSettingsForm();
+  chatArea.style.display = 'none';
+  inputArea.style.display = 'none';
+  statusEl.style.display = 'none';
+  settingsPanel.style.display = 'flex';
+  settingsBtn.classList.add('active');
+  headerName.textContent = 'Settings';
+}
+
+function closeSettings() {
+  settingsPanel.style.display = 'none';
+  chatArea.style.display = 'flex';
+  inputArea.style.display = 'flex';
+  statusEl.style.display = '';
+  settingsBtn.classList.remove('active');
+  headerName.textContent = 'Page Chat';
+}
+
+settingsBtn.addEventListener('click', () => {
+  if (settingsPanel.style.display === 'flex') closeSettings();
+  else openSettings();
 });
 
-// ── Markdown conversion ──────────────────────────────────────────────────────
+// ── Auto-resize textarea ─────────────────────────────────────────────────────
+
+userInput.addEventListener('input', () => {
+  userInput.style.height = 'auto';
+  userInput.style.height = Math.min(userInput.scrollHeight, 110) + 'px';
+});
+
+// ── Markdown / page utilities ────────────────────────────────────────────────
 
 const turndown = new TurndownService({
-  headingStyle:    'atx',
+  headingStyle:     'atx',
   bulletListMarker: '-',
-  codeBlockStyle:  'fenced',
-  fence:           '```',
-  hr:              '---',
-  strongDelimiter: '**',
-  emDelimiter:     '*',
+  codeBlockStyle:   'fenced',
+  fence:            '```',
+  hr:               '---',
+  strongDelimiter:  '**',
+  emDelimiter:      '*',
 });
 
-// Elements whose entire subtree is noise — strip before Turndown sees them
 const STRIP = [
-  'script', 'style', 'noscript',   // code & styles
-  'svg', 'canvas', 'picture',       // graphics
-  'iframe', 'frame', 'frameset',    // embeds
-  'template',                       // inert HTML templates
-  'head', 'link', 'meta',           // document infrastructure
+  'script', 'style', 'noscript', 'svg', 'canvas', 'picture',
+  'iframe', 'frame', 'frameset', 'template', 'head', 'link', 'meta',
 ].join(',');
 
 function cleanHtml(rawHtml) {
@@ -111,166 +221,166 @@ function cleanHtml(rawHtml) {
   return doc.body.innerHTML;
 }
 
-function convertToMarkdown() {
-  statusEl.textContent = 'Converting to markdown…';
-  mdPanel.classList.add('empty');
+async function fetchPageMarkdown() {
+  statusEl.textContent = 'Reading page…';
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => document.documentElement.outerHTML,
+  });
+  const html = results[0].result;
 
-  // Yield to the browser so the status update paints before the (sync) parse
-  setTimeout(() => {
-    try {
-      currentMarkdown = turndown.turndown(cleanHtml(currentHtml));
-      mdPanel.textContent = currentMarkdown;
-      mdPanel.classList.remove('empty');
-      statusEl.textContent =
-        `Markdown: ${currentMarkdown.length.toLocaleString()} chars`;
-    } catch (err) {
-      mdPanel.textContent = `Conversion error: ${err.message}`;
-      mdPanel.classList.remove('empty');
-      statusEl.textContent = 'Markdown conversion failed.';
-    }
-  }, 0);
+  statusEl.textContent = 'Parsing…';
+  await new Promise(r => setTimeout(r, 0)); // let status paint
+  currentMarkdown = turndown.turndown(cleanHtml(html));
+
+  const shortUrl = tab.url.length > 55 ? tab.url.slice(0, 55) + '…' : tab.url;
+  statusEl.textContent = `Page loaded · ${shortUrl}`;
 }
 
-// ── Copy ─────────────────────────────────────────────────────────────────────
+// ── Refresh button ───────────────────────────────────────────────────────────
 
-copyBtn.addEventListener('click', async () => {
-  const text = activeTab === 'markdown' ? currentMarkdown : currentHtml;
-  if (!text) {
-    statusEl.textContent = 'Nothing to copy — read a page first.';
-    return;
-  }
-  await navigator.clipboard.writeText(text);
-  statusEl.textContent = `Copied ${activeTab} to clipboard!`;
+refreshBtn.addEventListener('click', async () => {
+  if (isBusy) return;
+  currentMarkdown = '';
+  conversationHistory = [];
+  // Clear chat, restore welcome
+  chatArea.innerHTML = '';
+  chatArea.appendChild(welcome);
+  statusEl.textContent = 'Page cleared — send a message to re-read it.';
 });
 
-// ── Ollama Q&A ──────────────────────────────────────────────────────────────
+// ── Chat UI helpers ──────────────────────────────────────────────────────────
 
-ollamaAskBtn.addEventListener('click', async () => {
-  const question = ollamaQuestion.value.trim();
-  
-  if (!question) {
-    statusEl.textContent = 'Please enter a question.';
-    return;
+function hideWelcome() {
+  if (welcome.isConnected) welcome.remove();
+}
+
+/** Appends a bubble and returns the bubble element (for streaming updates). */
+function addMessage(role, content) {
+  hideWelcome();
+  const wrap   = document.createElement('div');
+  wrap.className = `message ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+  chatArea.appendChild(wrap);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return bubble;
+}
+
+/** Appends an animated typing indicator and returns its wrapper element. */
+function addTypingIndicator() {
+  hideWelcome();
+  const wrap   = document.createElement('div');
+  wrap.className = 'message assistant';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble typing-dots';
+  bubble.innerHTML = '<span></span><span></span><span></span>';
+  wrap.appendChild(bubble);
+  chatArea.appendChild(wrap);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return wrap;
+}
+
+// ── Send message ─────────────────────────────────────────────────────────────
+
+sendBtn.addEventListener('click', sendMessage);
+
+userInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
   }
+});
 
-  if (!currentMarkdown) {
-    statusEl.textContent = 'Please load a page first.';
-    return;
-  }
+async function sendMessage() {
+  const question = userInput.value.trim();
+  if (!question || isBusy) return;
 
-  if (ollamaRunning) {
-    statusEl.textContent = 'Request already in progress...';
-    return;
-  }
+  isBusy = true;
+  sendBtn.disabled = true;
+  userInput.value = '';
+  userInput.style.height = 'auto';
 
-  ollamaRunning = true;
-  ollamaAskBtn.disabled = true;
-  statusEl.textContent = 'Loading model...';
-  ollamaResponse.textContent = '';
-  ollamaResponse.classList.remove('empty');
+  addMessage('user', question);
+  let typingEl = addTypingIndicator();
 
   try {
-    // Use default model if available, otherwise first available, fallback to default
-    let modelToUse = DEFAULT_MODEL;
-    if (!availableModels.includes(DEFAULT_MODEL) && availableModels.length > 0) {
-      modelToUse = availableModels[0];
+    // Auto-fetch page if we don't have it yet
+    if (!currentMarkdown) {
+      await fetchPageMarkdown();
+      // Reset conversation when page context changes
+      conversationHistory = [];
     }
-    console.log('Using model:', modelToUse);
-    
-    const prompt = `Based on this markdown content:\n\n${currentMarkdown}\n\n---\n\nAnswer this question: ${question}`;
-    
-    statusEl.textContent = 'Sending to Ollama...';
-    const response = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: modelToUse,
-        prompt: prompt,
-        stream: true,
+
+    // Seed the system message on the first turn
+    if (conversationHistory.length === 0) {
+      conversationHistory.push({
+        role:    'system',
+        content: `You are a helpful, friendly assistant. The user is viewing a web page. Answer their questions based on the page content below. Be concise and clear.\n\n---\n\n${currentMarkdown}`,
+      });
+    }
+
+    conversationHistory.push({ role: 'user', content: question });
+    statusEl.textContent = 'Thinking…';
+
+    const res = await fetch('http://localhost:11434/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        model:    modelToUse,
+        messages: conversationHistory,
+        stream:   true,
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
+    if (!res.ok) throw new Error(`Ollama error ${res.status}: ${res.statusText}`);
+
+    // Swap typing indicator for a real bubble
+    typingEl.remove();
+    typingEl = null;
+    const aiBubble = addMessage('assistant', '');
 
     let fullResponse = '';
-    const reader = response.body.getReader();
+    const reader  = res.body.getReader();
     const decoder = new TextDecoder();
-    let isFirstChunk = true;
-    let tokenCount = 0;
-
-    statusEl.textContent = 'Receiving response...';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n').filter(line => line.trim());
-
+      const lines = decoder.decode(value).split('\n').filter(l => l.trim());
       for (const line of lines) {
         try {
           const data = JSON.parse(line);
-          
-          // Accumulate response text
-          if (data.response) {
-            if (isFirstChunk) {
-              isFirstChunk = false;
-              statusEl.textContent = 'Streaming response...';
-            }
-            fullResponse += data.response;
-            ollamaResponse.textContent = fullResponse;
-            tokenCount = data.eval_count || tokenCount;
-            
-            // Auto-scroll to bottom
-            setTimeout(() => {
-              ollamaResponse.scrollTop = ollamaResponse.scrollHeight;
-            }, 0);
+          if (data.message?.content) {
+            fullResponse += data.message.content;
+            aiBubble.textContent = fullResponse;
+            chatArea.scrollTop = chatArea.scrollHeight;
           }
-          
-          // Check if generation is complete
           if (data.done) {
-            const duration = data.total_duration ? (data.total_duration / 1_000_000_000).toFixed(1) : '?';
-            const tokens = data.eval_count || tokenCount || '?';
-            statusEl.textContent = `Response complete ✓ (${tokens} tokens, ${duration}s)`;
-            ollamaQuestion.value = '';
-            return; // Exit early since generation is done
+            const secs = data.total_duration
+              ? (data.total_duration / 1e9).toFixed(1)
+              : '?';
+            statusEl.textContent = `Done · ${secs}s`;
           }
-        } catch (e) {
-          // Skip non-JSON lines
-        }
+        } catch { /* skip non-JSON lines */ }
       }
     }
+
+    conversationHistory.push({ role: 'assistant', content: fullResponse });
+
   } catch (err) {
-    ollamaResponse.textContent = `Error: ${err.message}`;
-    statusEl.textContent = 'Failed to get Ollama response.';
+    typingEl?.remove();
+    addMessage('assistant', `Something went wrong: ${err.message}`);
+    statusEl.textContent = 'Error — is Ollama running?';
+    // Roll back the user turn so history stays consistent
+    if (conversationHistory.at(-1)?.role === 'user') conversationHistory.pop();
   } finally {
-    ollamaRunning = false;
-    ollamaAskBtn.disabled = false;
+    isBusy = false;
+    sendBtn.disabled = false;
+    userInput.focus();
   }
-});
-
-// Allow Enter key to submit
-ollamaQuestion.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    ollamaAskBtn.click();
-  }
-});
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function resetPanels() {
-  currentHtml     = '';
-  currentMarkdown = '';
-
-  htmlPanel.textContent = '';
-  htmlPanel.classList.add('empty');
-  mdPanel.textContent = '';
-  mdPanel.classList.add('empty');
-  ollamaResponse.textContent = '';
-  ollamaResponse.classList.add('empty');
-  ollamaQuestion.value = '';
 }
