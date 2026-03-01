@@ -1,9 +1,10 @@
-const readBtn  = document.getElementById('readBtn');
-const copyBtn  = document.getElementById('copyBtn');
-const statusEl = document.getElementById('status');
-const htmlPanel = document.getElementById('htmlPanel');
-const mdPanel   = document.getElementById('markdownPanel');
-const tabs      = document.querySelectorAll('.tab');
+const readBtn    = document.getElementById('readBtn');
+const copyBtn    = document.getElementById('copyBtn');
+const statusEl   = document.getElementById('status');
+const htmlPanel  = document.getElementById('htmlPanel');
+const mdPanel    = document.getElementById('markdownPanel');
+const slackPanel = document.getElementById('slackPanel');
+const tabs       = document.querySelectorAll('.tab');
 
 let currentHtml     = '';
 let currentMarkdown = '';
@@ -11,13 +12,16 @@ let activeTab       = 'html';
 
 // ── Tab switching ────────────────────────────────────────────────────────────
 
+const PANELS = { html: htmlPanel, markdown: mdPanel, slack: slackPanel };
+
 tabs.forEach(tab => {
   tab.addEventListener('click', () => {
     activeTab = tab.dataset.tab;
 
     tabs.forEach(t => t.classList.toggle('active', t === tab));
-    htmlPanel.classList.toggle('active', activeTab === 'html');
-    mdPanel.classList.toggle('active',   activeTab === 'markdown');
+    Object.entries(PANELS).forEach(([name, el]) =>
+      el.classList.toggle('active', name === activeTab)
+    );
 
     if (activeTab === 'markdown' && currentHtml && !currentMarkdown) {
       convertToMarkdown();
@@ -115,6 +119,93 @@ copyBtn.addEventListener('click', async () => {
   }
   await navigator.clipboard.writeText(text);
   statusEl.textContent = `Copied ${activeTab} to clipboard!`;
+});
+
+// ── Slack ─────────────────────────────────────────────────────────────────────
+
+const tokenInput      = document.getElementById('tokenInput');
+const channelInput    = document.getElementById('channelInput');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const messageInput    = document.getElementById('messageInput');
+const charCount       = document.getElementById('charCount');
+const sendBtn         = document.getElementById('sendBtn');
+
+// Load saved settings into inputs on startup
+chrome.storage.local.get(['slackToken', 'slackChannel'], (result) => {
+  if (chrome.runtime.lastError) return;
+  if (result.slackToken)   tokenInput.value   = result.slackToken;
+  if (result.slackChannel) channelInput.value = result.slackChannel;
+});
+
+// Persist settings whenever an input changes
+function saveSlackSettings() {
+  const token   = tokenInput.value.trim();
+  const channel = channelInput.value.trim();
+  if (!token && !channel) return;
+  chrome.storage.local.set({ slackToken: token, slackChannel: channel });
+}
+
+tokenInput.addEventListener('change',   saveSlackSettings);
+channelInput.addEventListener('change', saveSlackSettings);
+
+saveSettingsBtn.addEventListener('click', () => {
+  const token   = tokenInput.value.trim();
+  const channel = channelInput.value.trim();
+  if (!token || !channel) {
+    statusEl.textContent = 'Enter both a token and a channel ID before saving.';
+    return;
+  }
+  chrome.storage.local.set({ slackToken: token, slackChannel: channel }, () => {
+    if (chrome.runtime.lastError) {
+      statusEl.textContent = `Save failed: ${chrome.runtime.lastError.message}`;
+      return;
+    }
+    statusEl.textContent = 'Slack settings saved.';
+  });
+});
+
+messageInput.addEventListener('input', () => {
+  charCount.textContent = `${messageInput.value.length} chars`;
+});
+
+sendBtn.addEventListener('click', async () => {
+  const text    = messageInput.value.trim();
+  const token   = tokenInput.value.trim();
+  const channel = channelInput.value.trim();
+
+  if (!text) {
+    statusEl.textContent = 'Type a message first.';
+    return;
+  }
+  if (!token || !channel) {
+    statusEl.textContent = 'Enter your bot token and channel ID above.';
+    return;
+  }
+
+  sendBtn.disabled = true;
+  statusEl.textContent = 'Sending…';
+
+  try {
+    const res = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ channel, text }),
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    messageInput.value = '';
+    charCount.textContent = '0 chars';
+    statusEl.textContent = 'Message sent!';
+  } catch (err) {
+    statusEl.textContent = `Slack error: ${err.message}`;
+  } finally {
+    sendBtn.disabled = false;
+  }
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

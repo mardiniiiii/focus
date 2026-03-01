@@ -132,6 +132,109 @@
       white-space: normal;
       font-style: italic;
     }
+
+    /* Slack panel */
+    #slackPanel {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      overflow: auto;
+    }
+
+    #slackPanel.active {
+      display: flex;
+    }
+
+    .slack-section {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .slack-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6c7086;
+      margin-bottom: 2px;
+    }
+
+    .slack-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .slack-row label {
+      font-size: 11px;
+      color: #a6adc8;
+      width: 60px;
+      flex-shrink: 0;
+    }
+
+    .slack-row input {
+      flex: 1;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 4px 8px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      color: #cdd6f4;
+      outline: none;
+    }
+
+    .slack-row input:focus {
+      border-color: #cba6f7;
+    }
+
+    .slack-row input::placeholder { color: #585b70; }
+
+    #messageInput {
+      width: 100%;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 8px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      color: #cdd6f4;
+      resize: vertical;
+      min-height: 100px;
+      outline: none;
+      line-height: 1.5;
+    }
+
+    #messageInput:focus { border-color: #cba6f7; }
+    #messageInput::placeholder { color: #585b70; }
+
+    .slack-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #charCount {
+      font-size: 11px;
+      color: #6c7086;
+    }
+
+    #sendBtn {
+      background: #40a02b;
+      border-color: #40a02b;
+      color: #fff;
+      padding: 5px 16px;
+    }
+
+    #sendBtn:hover { background: #52c234; border-color: #52c234; }
+    #sendBtn:disabled { background: #313244; border-color: #45475a; color: #6c7086; cursor: not-allowed; }
+
+    #saveSettingsBtn { align-self: flex-end; }
   </style>
 </head>
 <body>
@@ -146,12 +249,37 @@
   <div class="tabs">
     <button class="tab active" data-tab="html">HTML</button>
     <button class="tab" data-tab="markdown">Markdown</button>
+    <button class="tab" data-tab="slack">Slack</button>
   </div>
 
   <div id="status">Click "Read Page" to fetch the current page's source.</div>
 
   <div id="htmlPanel" class="panel active empty">No HTML loaded yet.</div>
   <div id="markdownPanel" class="panel empty">No markdown converted yet.</div>
+
+  <div id="slackPanel" class="panel">
+    <div class="slack-section">
+      <div class="slack-section-title">Bot settings</div>
+      <div class="slack-row">
+        <label for="tokenInput">Token</label>
+        <input id="tokenInput" type="password" placeholder="xoxb-..." autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="slack-row">
+        <label for="channelInput">Channel</label>
+        <input id="channelInput" type="text" placeholder="C1234567890" spellcheck="false" />
+      </div>
+      <button id="saveSettingsBtn">Save settings</button>
+    </div>
+
+    <div class="slack-section">
+      <div class="slack-section-title">Message</div>
+      <textarea id="messageInput" placeholder="Type a message to send to Slack…"></textarea>
+      <div class="slack-footer">
+        <span id="charCount">0 chars</span>
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
 
   <script src="turndown.js"></script>
   <script src="popup.js"></script>
