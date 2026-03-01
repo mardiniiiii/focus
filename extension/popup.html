@@ -127,6 +127,63 @@
       color: #89dceb;
     }
 
+    #ollamaPanel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ollama-input-group {
+      display: flex;
+      gap: 6px;
+      padding: 10px 0 10px 0;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    #ollamaQuestion {
+      flex: 1;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 6px 10px;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      background: #313244;
+      color: #cdd6f4;
+    }
+
+    #ollamaQuestion:focus {
+      outline: none;
+      border-color: #cba6f7;
+      background: #3e3d5c;
+    }
+
+    #ollamaAskBtn {
+      font-family: monospace;
+      font-size: 12px;
+      padding: 6px 10px;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      background: #313244;
+      color: #cdd6f4;
+      cursor: pointer;
+    }
+
+    #ollamaAskBtn:hover {
+      background: #45475a;
+    }
+
+    #ollamaAskBtn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #ollamaResponse {
+      white-space: pre-wrap;
+      color: #a6e3a1;
+      flex: 1;
+      overflow: auto;
+    }
+
     .panel.empty {
       color: #6c7086;
       white-space: normal;
@@ -146,12 +203,20 @@
   <div class="tabs">
     <button class="tab active" data-tab="html">HTML</button>
     <button class="tab" data-tab="markdown">Markdown</button>
+    <button class="tab" data-tab="ollama">Ollama Q&A</button>
   </div>
 
   <div id="status">Click "Read Page" to fetch the current page's source.</div>
 
   <div id="htmlPanel" class="panel active empty">No HTML loaded yet.</div>
   <div id="markdownPanel" class="panel empty">No markdown converted yet.</div>
+  <div id="ollamaPanel" class="panel">
+    <div class="ollama-input-group">
+      <input type="text" id="ollamaQuestion" placeholder="Ask a question about the page...">
+      <button id="ollamaAskBtn">Ask</button>
+    </div>
+    <div id="ollamaResponse" class="empty">Load a page and ask a question.</div>
+  </div>
 
   <script src="turndown.js"></script>
   <script src="popup.js"></script>
