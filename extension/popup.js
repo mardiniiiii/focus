@@ -3,11 +3,36 @@ const copyBtn  = document.getElementById('copyBtn');
 const statusEl = document.getElementById('status');
 const htmlPanel = document.getElementById('htmlPanel');
 const mdPanel   = document.getElementById('markdownPanel');
+const ollamaPanel = document.getElementById('ollamaPanel');
+const ollamaQuestion = document.getElementById('ollamaQuestion');
+const ollamaAskBtn = document.getElementById('ollamaAskBtn');
+const ollamaResponse = document.getElementById('ollamaResponse');
 const tabs      = document.querySelectorAll('.tab');
 
 let currentHtml     = '';
 let currentMarkdown = '';
 let activeTab       = 'html';
+let ollamaRunning   = false;
+let availableModels = [];
+const DEFAULT_MODEL = 'gemma3:1b';
+
+// Fetch available models on startup
+(async () => {
+  try {
+    const response = await fetch('http://localhost:11434/api/tags');
+    if (response.ok) {
+      const data = await response.json();
+      availableModels = data.models?.map(m => m.name) || [];
+      console.log('Available models:', availableModels);
+      if (availableModels.length === 0) {
+        statusEl.textContent = 'No Ollama models available. Pull one first.';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch models:', err);
+    statusEl.textContent = 'Ollama server not running.';
+  }
+})();
 
 // ── Tab switching ────────────────────────────────────────────────────────────
 
@@ -18,6 +43,7 @@ tabs.forEach(tab => {
     tabs.forEach(t => t.classList.toggle('active', t === tab));
     htmlPanel.classList.toggle('active', activeTab === 'html');
     mdPanel.classList.toggle('active',   activeTab === 'markdown');
+    ollamaPanel.classList.toggle('active', activeTab === 'ollama');
 
     if (activeTab === 'markdown' && currentHtml && !currentMarkdown) {
       convertToMarkdown();
@@ -117,6 +143,123 @@ copyBtn.addEventListener('click', async () => {
   statusEl.textContent = `Copied ${activeTab} to clipboard!`;
 });
 
+// ── Ollama Q&A ──────────────────────────────────────────────────────────────
+
+ollamaAskBtn.addEventListener('click', async () => {
+  const question = ollamaQuestion.value.trim();
+  
+  if (!question) {
+    statusEl.textContent = 'Please enter a question.';
+    return;
+  }
+
+  if (!currentMarkdown) {
+    statusEl.textContent = 'Please load a page first.';
+    return;
+  }
+
+  if (ollamaRunning) {
+    statusEl.textContent = 'Request already in progress...';
+    return;
+  }
+
+  ollamaRunning = true;
+  ollamaAskBtn.disabled = true;
+  statusEl.textContent = 'Loading model...';
+  ollamaResponse.textContent = '';
+  ollamaResponse.classList.remove('empty');
+
+  try {
+    // Use default model if available, otherwise first available, fallback to default
+    let modelToUse = DEFAULT_MODEL;
+    if (!availableModels.includes(DEFAULT_MODEL) && availableModels.length > 0) {
+      modelToUse = availableModels[0];
+    }
+    console.log('Using model:', modelToUse);
+    
+    const prompt = `Based on this markdown content:\n\n${currentMarkdown}\n\n---\n\nAnswer this question: ${question}`;
+    
+    statusEl.textContent = 'Sending to Ollama...';
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        prompt: prompt,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    let fullResponse = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let isFirstChunk = true;
+    let tokenCount = 0;
+
+    statusEl.textContent = 'Receiving response...';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n').filter(line => line.trim());
+
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          
+          // Accumulate response text
+          if (data.response) {
+            if (isFirstChunk) {
+              isFirstChunk = false;
+              statusEl.textContent = 'Streaming response...';
+            }
+            fullResponse += data.response;
+            ollamaResponse.textContent = fullResponse;
+            tokenCount = data.eval_count || tokenCount;
+            
+            // Auto-scroll to bottom
+            setTimeout(() => {
+              ollamaResponse.scrollTop = ollamaResponse.scrollHeight;
+            }, 0);
+          }
+          
+          // Check if generation is complete
+          if (data.done) {
+            const duration = data.total_duration ? (data.total_duration / 1_000_000_000).toFixed(1) : '?';
+            const tokens = data.eval_count || tokenCount || '?';
+            statusEl.textContent = `Response complete ✓ (${tokens} tokens, ${duration}s)`;
+            ollamaQuestion.value = '';
+            return; // Exit early since generation is done
+          }
+        } catch (e) {
+          // Skip non-JSON lines
+        }
+      }
+    }
+  } catch (err) {
+    ollamaResponse.textContent = `Error: ${err.message}`;
+    statusEl.textContent = 'Failed to get Ollama response.';
+  } finally {
+    ollamaRunning = false;
+    ollamaAskBtn.disabled = false;
+  }
+});
+
+// Allow Enter key to submit
+ollamaQuestion.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    ollamaAskBtn.click();
+  }
+});
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function resetPanels() {
@@ -127,4 +270,7 @@ function resetPanels() {
   htmlPanel.classList.add('empty');
   mdPanel.textContent = '';
   mdPanel.classList.add('empty');
+  ollamaResponse.textContent = '';
+  ollamaResponse.classList.add('empty');
+  ollamaQuestion.value = '';
 }
