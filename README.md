@@ -1,4 +1,4 @@
-# the freak is this?
+# what is this?!!!
 be more productive with our revolutionary productivity pipeline, using advanced ai technology we have achieved greatness and now allows the extention to snitch on you to all your friends on slack!
 - made for mit blueprint 2026 by Violet and Evan!!!
 # who made this??
@@ -9,9 +9,9 @@ evan the workaround mcp server as our small ollama model did not support it & re
 # HOW TO RUN!!!!!
 
 - ```git clone https://github.com/evan-gan/sucof.git```
-- create a chrome extention on any chromeium browser at ```chrome://extentions```
+- create a chrome extension on any Chromium browser at ```chrome://extentions```
 - download ollama and download gemma3:1b
 - create a slack bot on api.slack.com
-- make sure the local ai is running and the correct slack bot oauth token is put into the settings along with your slack channel id
+- make sure the local ai is running and the correct slack bot OAuth token is put into the settings along with your slack channel id
 
 have fun!!!
