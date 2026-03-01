@@ -1,0 +1,23 @@
+{
+  "name": "sucof",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evan-gan/sucof.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/evan-gan/sucof/issues"
+  },
+  "homepage": "https://github.com/evan-gan/sucof#readme",
+  "dependencies": {
+    "turndown": "^7.2.2"
+  }
+}

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Reads and displays the HTML source of the current page",
   "permissions": ["activeTab", "scripting"],
-  "action": {
+"action": {
     "default_popup": "popup.html",
     "default_title": "Read Page HTML"
   }
