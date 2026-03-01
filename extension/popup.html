@@ -369,6 +369,132 @@
       cursor: not-allowed;
       transform: none;
     }
+
+    /* ── Settings button (matches refreshBtn style) ───── */
+    #settingsBtn {
+      background: none;
+      border: none;
+      color: #6c7086;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
+    }
+
+    #settingsBtn:hover, #settingsBtn.active {
+      color: #cdd6f4;
+      background: #313244;
+    }
+
+    /* ── Settings panel ──────────────────────────────── */
+    #settingsPanel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    #settingsPanel::-webkit-scrollbar { width: 4px; }
+    #settingsPanel::-webkit-scrollbar-track { background: transparent; }
+    #settingsPanel::-webkit-scrollbar-thumb {
+      background: #313244;
+      border-radius: 2px;
+    }
+
+    .settings-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    .settings-back-btn {
+      background: none;
+      border: none;
+      color: #6c7086;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
+    }
+
+    .settings-back-btn:hover {
+      color: #cdd6f4;
+      background: #313244;
+    }
+
+    .settings-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #cdd6f4;
+    }
+
+    .settings-fields {
+      flex: 1;
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .settings-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .settings-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #9399b2;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .settings-input {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 11px;
+      border: 1px solid #45475a;
+      border-radius: 10px;
+      background: #2a2a3e;
+      color: #cdd6f4;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .settings-input:focus {
+      border-color: #7287fd;
+    }
+
+    .settings-input::placeholder { color: #585b70; }
+
+    .settings-save-btn {
+      margin: 0 14px 16px;
+      padding: 9px;
+      border: none;
+      border-radius: 11px;
+      background: #7287fd;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .settings-save-btn:hover { background: #89b4fa; }
+    .settings-save-btn.saved { background: #a6e3a1; color: #1e1e2e; }
   </style>
 </head>
 <body>
@@ -390,6 +516,11 @@
           <path d="M13.65 2.35A7.958 7.958 0 0 0 8 0C3.58 0 0 3.58 0 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 8 14c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z" fill="currentColor"/>
         </svg>
       </button>
+      <button id="settingsBtn" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -402,6 +533,8 @@
       <div class="welcome-sub">Type a question and I'll read the page automatically to answer it.</div>
     </div>
   </div>
+
+  <div id="settingsPanel"></div>
 
   <div class="input-area">
     <textarea id="userInput" placeholder="Ask about this page…" rows="1"></textarea>

@@ -10,6 +10,9 @@ const modelFilter   = document.getElementById('modelFilter');
 const modelList     = document.getElementById('modelList');
 const refreshBtn    = document.getElementById('refreshBtn');
 const faviconEl     = document.getElementById('favicon');
+const settingsBtn   = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const inputArea     = document.querySelector('.input-area');
 
 // Set favicon from the active tab
 chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -96,6 +99,97 @@ document.addEventListener('click', (e) => {
     modelBadge.textContent = 'offline';
   }
 })();
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+// Add fields here to expand the settings panel
+const SETTINGS_FIELDS = [
+  { key: 'token',     label: 'Token',      type: 'password', placeholder: 'xoxb-…' },
+  { key: 'channelId', label: 'Channel ID', type: 'text',     placeholder: 'C0XXXXXXXX' },
+];
+
+const SETTINGS_STORAGE_KEY = 'sucof_settings';
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveSettings(values) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+}
+
+function renderSettingsForm() {
+  settingsPanel.innerHTML = '';
+
+  const saved = loadSettings();
+  const fields = document.createElement('div');
+  fields.className = 'settings-fields';
+
+  for (const field of SETTINGS_FIELDS) {
+    const group = document.createElement('div');
+    group.className = 'settings-field';
+
+    const label = document.createElement('label');
+    label.htmlFor = `setting-${field.key}`;
+    label.className = 'settings-label';
+    label.textContent = field.label;
+
+    const input = document.createElement('input');
+    input.type = field.type;
+    input.id = `setting-${field.key}`;
+    input.className = 'settings-input';
+    input.placeholder = field.placeholder || '';
+    input.value = saved[field.key] || '';
+
+    group.appendChild(label);
+    group.appendChild(input);
+    fields.appendChild(group);
+  }
+  settingsPanel.appendChild(fields);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'settings-save-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    const values = {};
+    for (const field of SETTINGS_FIELDS) {
+      const input = document.getElementById(`setting-${field.key}`);
+      if (input) values[field.key] = input.value.trim();
+    }
+    saveSettings(values);
+    saveBtn.classList.add('saved');
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => { saveBtn.classList.remove('saved'); saveBtn.textContent = 'Save'; }, 1500);
+  });
+  settingsPanel.appendChild(saveBtn);
+}
+
+const headerName = document.querySelector('.header-name');
+
+function openSettings() {
+  renderSettingsForm();
+  chatArea.style.display = 'none';
+  inputArea.style.display = 'none';
+  statusEl.style.display = 'none';
+  settingsPanel.style.display = 'flex';
+  settingsBtn.classList.add('active');
+  headerName.textContent = 'Settings';
+}
+
+function closeSettings() {
+  settingsPanel.style.display = 'none';
+  chatArea.style.display = 'flex';
+  inputArea.style.display = 'flex';
+  statusEl.style.display = '';
+  settingsBtn.classList.remove('active');
+  headerName.textContent = 'Page Chat';
+}
+
+settingsBtn.addEventListener('click', () => {
+  if (settingsPanel.style.display === 'flex') closeSettings();
+  else openSettings();
+});
 
 // ── Auto-resize textarea ─────────────────────────────────────────────────────
 
