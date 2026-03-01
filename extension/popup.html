@@ -284,6 +284,73 @@
       white-space: pre-wrap;
     }
 
+    /* ── Tool call marker ────────────────────────────── */
+    .message.tool-call-wrap { margin-block: -2px; }
+
+    .tool-call { font-size: 12px; }
+
+    .tool-call summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 7px;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      color: #6c7086;
+      list-style: none;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .tool-call summary:hover { background: #313244; color: #9399b2; }
+    .tool-call summary::-webkit-details-marker { display: none; }
+
+    .tool-call-icon { font-size: 10px; opacity: 0.7; }
+
+    .tool-call-name {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+    }
+
+    .tool-call-chevron { font-size: 10px; opacity: 0.55; }
+    .tool-call-chevron::before { content: '›'; }
+    .tool-call[open] .tool-call-chevron::before { content: '˅'; }
+
+    .tool-call-body {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 280px;
+    }
+
+    .tool-call-section { display: flex; flex-direction: column; gap: 3px; }
+
+    .tool-call-label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6c7086;
+    }
+
+    .tool-call-value {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: #a6e3a1;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .tool-call-value.input { color: #89dceb; }
+
     /* ── Typing indicator ────────────────────────────── */
     .typing-dots {
       display: flex;
@@ -546,6 +613,7 @@
   </div>
 
   <script src="turndown.js"></script>
+  <script src="mcp.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

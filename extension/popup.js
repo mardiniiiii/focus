@@ -284,6 +284,74 @@ function addTypingIndicator() {
   return wrap;
 }
 
+/**
+ * Extracts the "content" string value from a partial or complete JSON blob
+ * as it streams in, so we can show live text before the JSON is fully parsed.
+ */
+function extractStreamingContent(partial) {
+  const idx = partial.indexOf('"content"');
+  if (idx === -1) return null;
+  const afterColon = partial.slice(idx + 9).replace(/^\s*:\s*/, '');
+  if (!afterColon.startsWith('"')) return null;
+  let result = '';
+  for (let i = 1; i < afterColon.length; i++) {
+    if (afterColon[i] === '\\' && i + 1 < afterColon.length) {
+      const esc = afterColon[++i];
+      result += esc === 'n' ? '\n' : esc === 't' ? '\t' : esc;
+    } else if (afterColon[i] === '"') {
+      break;
+    } else {
+      result += afterColon[i];
+    }
+  }
+  return result || null;
+}
+
+/** Appends a collapsible tool-call chip showing the tool name, inputs, and output. */
+function addToolCallMessage(name, args, result) {
+  hideWelcome();
+  const wrap = document.createElement('div');
+  wrap.className = 'message assistant tool-call-wrap';
+
+  const details = document.createElement('details');
+  details.className = 'tool-call';
+
+  const summary = document.createElement('summary');
+  const icon = document.createElement('span');
+  icon.className = 'tool-call-icon';
+  icon.textContent = '⚙';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'tool-call-name';
+  nameEl.textContent = name;
+  const chevron = document.createElement('span');
+  chevron.className = 'tool-call-chevron';
+  summary.append(icon, nameEl, chevron);
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'tool-call-body';
+
+  const argStr = Object.keys(args).length ? JSON.stringify(args, null, 2) : '(none)';
+  const truncate = s => s.length > 400 ? s.slice(0, 400) + '\n… (truncated)' : s;
+  for (const [label, value, cls] of [['Input', argStr, 'input'], ['Output', truncate(result), '']]) {
+    const section = document.createElement('div');
+    section.className = 'tool-call-section';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'tool-call-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('pre');
+    valueEl.className = 'tool-call-value' + (cls ? ' ' + cls : '');
+    valueEl.textContent = value;
+    section.append(labelEl, valueEl);
+    body.appendChild(section);
+  }
+
+  details.appendChild(body);
+  wrap.appendChild(details);
+  chatArea.appendChild(wrap);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
 // ── Send message ─────────────────────────────────────────────────────────────
 
 sendBtn.addEventListener('click', sendMessage);
@@ -308,69 +376,127 @@ async function sendMessage() {
   let typingEl = addTypingIndicator();
 
   try {
-    // Auto-fetch page if we don't have it yet
-    if (!currentMarkdown) {
-      await fetchPageMarkdown();
-      // Reset conversation when page context changes
-      conversationHistory = [];
-    }
-
-    // Seed the system message on the first turn
+    // Seed the system message on the first turn (no page content — model fetches it via tool).
     if (conversationHistory.length === 0) {
-      conversationHistory.push({
-        role:    'system',
-        content: `You are a helpful, friendly assistant. The user is viewing a web page. Answer their questions based on the page content below. Be concise and clear.\n\n---\n\n${currentMarkdown}`,
-      });
+      conversationHistory.push({ role: 'system', content: buildSystemPrompt() });
     }
 
     conversationHistory.push({ role: 'user', content: question });
     statusEl.textContent = 'Thinking…';
 
-    const res = await fetch('http://localhost:11434/api/chat', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        model:    modelToUse,
-        messages: conversationHistory,
-        stream:   true,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`Ollama error ${res.status}: ${res.statusText}`);
-
-    // Swap typing indicator for a real bubble
-    typingEl.remove();
-    typingEl = null;
-    const aiBubble = addMessage('assistant', '');
-
+    // Tool-call loop: keep going until the model replies with action "respond".
     let fullResponse = '';
-    const reader  = res.body.getReader();
-    const decoder = new TextDecoder();
+    let aiBubble = null;   // bubble for the current iteration; reset after each tool call
+    let lastToolKey = null;
+    let sameCallStreak = 0;
+    const mcpContext = {
+      get pageMarkdown() { return currentMarkdown; },
+      fetchPage: async () => {
+        await fetchPageMarkdown();
+        return currentMarkdown;
+      },
+    };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for (let iteration = 0; iteration < 10; iteration++) {
+      const res = await fetch('http://localhost:11434/api/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ model: modelToUse, messages: conversationHistory, stream: true }),
+      });
 
-      const lines = decoder.decode(value).split('\n').filter(l => l.trim());
-      for (const line of lines) {
-        try {
-          const data = JSON.parse(line);
-          if (data.message?.content) {
-            fullResponse += data.message.content;
-            aiBubble.textContent = fullResponse;
-            chatArea.scrollTop = chatArea.scrollHeight;
-          }
-          if (data.done) {
-            const secs = data.total_duration
-              ? (data.total_duration / 1e9).toFixed(1)
-              : '?';
-            statusEl.textContent = `Done · ${secs}s`;
-          }
-        } catch { /* skip non-JSON lines */ }
+      if (!res.ok) throw new Error(`Ollama error ${res.status}: ${res.statusText}`);
+
+      fullResponse = '';
+      aiBubble = null;
+      let totalDuration = null;
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const line of decoder.decode(value).split('\n').filter(l => l.trim())) {
+          try {
+            const data = JSON.parse(line);
+            if (data.message?.content) {
+              fullResponse += data.message.content;
+              // Try to extract the "content" field from partial JSON for live display.
+              // If the model isn't outputting JSON (plain text), stream it directly.
+              // Suppress display if the response looks like JSON (raw or code-fenced).
+              const trimmed = fullResponse.trimStart();
+              const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('`');
+              const liveText = extractStreamingContent(fullResponse)
+                ?? (looksLikeJson ? null : fullResponse);
+              if (liveText) {
+                if (!aiBubble) {
+                  typingEl?.remove();
+                  typingEl = null;
+                  aiBubble = addMessage('assistant', '');
+                }
+                aiBubble.textContent = liveText;
+                chatArea.scrollTop = chatArea.scrollHeight;
+              }
+            }
+            if (data.done) totalDuration = data.total_duration ?? null;
+          } catch { /* skip non-JSON lines */ }
+        }
       }
-    }
 
-    conversationHistory.push({ role: 'assistant', content: fullResponse });
+      const parsed = parseModelResponse(fullResponse);
+
+      // Model wants to call a tool.
+      if (parsed?.action === 'tool') {
+        const { name, args = {} } = parsed;
+        // Always remove the streaming bubble — the chip replaces it.
+        if (aiBubble) { aiBubble.remove(); aiBubble = null; }
+        conversationHistory.push({ role: 'assistant', content: fullResponse });
+        statusEl.textContent = `Tool: ${name}…`;
+        const result = await runMCPTool(name, args, mcpContext);
+        addToolCallMessage(name, args, result);
+
+        // Detect repeated identical calls and nudge the model to stop looping.
+        const callKey = `${name}:${JSON.stringify(args)}`;
+        if (callKey === lastToolKey) {
+          sameCallStreak++;
+        } else {
+          lastToolKey = callKey;
+          sameCallStreak = 0;
+        }
+        const loopHint = sameCallStreak >= 1
+          ? ` You have now called "${name}" with the same arguments ${sameCallStreak + 1} times and the result will not change. Stop calling tools and respond to the user now using the respond action.`
+          : '';
+        conversationHistory.push({ role: 'user', content: `Tool result (${name}): ${result}${loopHint}` });
+        statusEl.textContent = 'Thinking…';
+        continue;  // aiBubble is reset at the top of the next iteration
+      }
+
+      // If parsing failed and response looks like attempted JSON, nudge the model
+      // to format correctly rather than dumping raw JSON into the chat.
+      if (!parsed) {
+        const t = fullResponse.trimStart();
+        if (t.startsWith('{') || t.startsWith('`')) {
+          if (aiBubble) { aiBubble.remove(); aiBubble = null; }
+          conversationHistory.push({ role: 'assistant', content: fullResponse });
+          conversationHistory.push({ role: 'user', content: 'Your response was not valid JSON. Reply with exactly one JSON object using the respond or tool format — no extra text, no trailing commas, no markdown fences.' });
+          statusEl.textContent = 'Retrying…';
+          continue;
+        }
+      }
+
+      // Final answer.
+      const displayText = parsed?.action === 'respond' ? parsed.content : fullResponse;
+      if (aiBubble) {
+        aiBubble.textContent = displayText;
+      } else {
+        typingEl?.remove();
+        typingEl = null;
+        addMessage('assistant', displayText);
+      }
+      conversationHistory.push({ role: 'assistant', content: fullResponse });
+      const secs = totalDuration ? (totalDuration / 1e9).toFixed(1) : '?';
+      statusEl.textContent = `Done · ${secs}s`;
+      break;
+    }
 
   } catch (err) {
     typingEl?.remove();
