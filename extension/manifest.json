@@ -6,6 +6,11 @@
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://slack.com/api/*"],
   "action": {
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "http://localhost:11434/*"
+  ],
+  "action": {
     "default_popup": "popup.html",
     "default_title": "Read Page HTML"
   }

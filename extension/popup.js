@@ -1,86 +1,218 @@
-const readBtn    = document.getElementById('readBtn');
-const copyBtn    = document.getElementById('copyBtn');
-const statusEl   = document.getElementById('status');
-const htmlPanel  = document.getElementById('htmlPanel');
-const mdPanel    = document.getElementById('markdownPanel');
-const slackPanel = document.getElementById('slackPanel');
-const tabs       = document.querySelectorAll('.tab');
+const statusEl      = document.getElementById('status');
+const chatArea      = document.getElementById('chatArea');
+const welcome       = document.getElementById('welcome');
+const userInput     = document.getElementById('userInput');
+const sendBtn       = document.getElementById('sendBtn');
+const modelBadge    = document.getElementById('modelBadge');
+const modelPicker   = document.getElementById('modelPicker');
+const modelDropdown = document.getElementById('modelDropdown');
+const modelFilter   = document.getElementById('modelFilter');
+const modelList     = document.getElementById('modelList');
+const refreshBtn    = document.getElementById('refreshBtn');
+const faviconEl     = document.getElementById('favicon');
+const settingsBtn   = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const inputArea     = document.querySelector('.input-area');
 
-let currentHtml     = '';
-let currentMarkdown = '';
-let activeTab       = 'html';
-
-// ── Tab switching ────────────────────────────────────────────────────────────
-
-const PANELS = { html: htmlPanel, markdown: mdPanel, slack: slackPanel };
-
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    activeTab = tab.dataset.tab;
-
-    tabs.forEach(t => t.classList.toggle('active', t === tab));
-    Object.entries(PANELS).forEach(([name, el]) =>
-      el.classList.toggle('active', name === activeTab)
-    );
-
-    if (activeTab === 'markdown' && currentHtml && !currentMarkdown) {
-      convertToMarkdown();
-    }
-  });
+// Set favicon from the active tab
+chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+  if (tab?.favIconUrl) faviconEl.src = tab.favIconUrl;
 });
 
-// ── Read page ────────────────────────────────────────────────────────────────
+let currentMarkdown     = '';
+let isBusy              = false;
+let availableModels     = [];
+let modelToUse          = 'gemma3:1b';
+let conversationHistory = [];  // [{role, content}]
 
-readBtn.addEventListener('click', async () => {
-  statusEl.textContent = 'Reading…';
-  resetPanels();
+const DEFAULT_MODEL  = 'gemma3:1b';
+const STORAGE_KEY    = 'sucof_preferred_model';
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+// ── Model dropdown ───────────────────────────────────────────────────────────
 
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => document.documentElement.outerHTML,
+function buildDropdown(filter = '') {
+  modelList.innerHTML = '';
+  const q = filter.toLowerCase();
+  for (const name of availableModels) {
+    if (q && !name.toLowerCase().includes(q)) continue;
+    const btn = document.createElement('button');
+    btn.className = 'model-option' + (name === modelToUse ? ' active' : '');
+    btn.dataset.model = name;
+    btn.innerHTML = `<span>${name}</span><span class="model-check">✓</span>`;
+    btn.addEventListener('click', () => {
+      modelToUse = name;
+      localStorage.setItem(STORAGE_KEY, name);
+      modelBadge.textContent = name;
+      modelDropdown.classList.remove('open');
+      buildDropdown();
     });
+    modelList.appendChild(btn);
+  }
+}
 
-    currentHtml     = results[0].result;
-    currentMarkdown = ''; // invalidate cached markdown
+modelFilter.addEventListener('input', () => buildDropdown(modelFilter.value));
 
-    htmlPanel.textContent = currentHtml;
-    htmlPanel.classList.remove('empty');
-
-    statusEl.textContent =
-      `Loaded ${currentHtml.length.toLocaleString()} chars from: ${tab.url}`;
-
-    // If the markdown tab is already visible, convert immediately
-    if (activeTab === 'markdown') convertToMarkdown();
-
-  } catch (err) {
-    htmlPanel.textContent = `Error: ${err.message}`;
-    htmlPanel.classList.remove('empty');
-    statusEl.textContent = 'Failed to read page HTML.';
+modelBadge.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (availableModels.length === 0) return;
+  const opening = !modelDropdown.classList.contains('open');
+  modelDropdown.classList.toggle('open');
+  if (opening) {
+    modelFilter.value = '';
+    buildDropdown();
+    modelFilter.focus();
   }
 });
 
-// ── Markdown conversion ──────────────────────────────────────────────────────
-
-const turndown = new TurndownService({
-  headingStyle:    'atx',
-  bulletListMarker: '-',
-  codeBlockStyle:  'fenced',
-  fence:           '```',
-  hr:              '---',
-  strongDelimiter: '**',
-  emDelimiter:     '*',
+document.addEventListener('click', (e) => {
+  if (!modelPicker.contains(e.target)) modelDropdown.classList.remove('open');
 });
 
-// Elements whose entire subtree is noise — strip before Turndown sees them
+// ── Connect to Ollama on startup ─────────────────────────────────────────────
+
+(async () => {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags');
+    if (!res.ok) throw new Error('bad status');
+    const data = await res.json();
+    availableModels = data.models?.map(m => m.name) ?? [];
+
+    if (availableModels.length === 0) {
+      statusEl.textContent = 'No Ollama models found — pull one first.';
+      modelBadge.textContent = 'no models';
+    } else {
+      // Prefer saved preference, then default, then first available
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && availableModels.includes(saved)) {
+        modelToUse = saved;
+      } else if (availableModels.includes(DEFAULT_MODEL)) {
+        modelToUse = DEFAULT_MODEL;
+      } else {
+        modelToUse = availableModels[0];
+      }
+      modelBadge.textContent = modelToUse;
+      buildDropdown();
+      statusEl.textContent = 'Ready · send a message to get started';
+    }
+  } catch {
+    statusEl.textContent = 'Ollama not running — start it first.';
+    modelBadge.textContent = 'offline';
+  }
+})();
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+// Add fields here to expand the settings panel
+const SETTINGS_FIELDS = [
+  { key: 'token',     label: 'Token',      type: 'password', placeholder: 'xoxb-…' },
+  { key: 'channelId', label: 'Channel ID', type: 'text',     placeholder: 'C0XXXXXXXX' },
+];
+
+const SETTINGS_STORAGE_KEY = 'sucof_settings';
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveSettings(values) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+}
+
+function renderSettingsForm() {
+  settingsPanel.innerHTML = '';
+
+  const saved = loadSettings();
+  const fields = document.createElement('div');
+  fields.className = 'settings-fields';
+
+  for (const field of SETTINGS_FIELDS) {
+    const group = document.createElement('div');
+    group.className = 'settings-field';
+
+    const label = document.createElement('label');
+    label.htmlFor = `setting-${field.key}`;
+    label.className = 'settings-label';
+    label.textContent = field.label;
+
+    const input = document.createElement('input');
+    input.type = field.type;
+    input.id = `setting-${field.key}`;
+    input.className = 'settings-input';
+    input.placeholder = field.placeholder || '';
+    input.value = saved[field.key] || '';
+
+    group.appendChild(label);
+    group.appendChild(input);
+    fields.appendChild(group);
+  }
+  settingsPanel.appendChild(fields);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'settings-save-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    const values = {};
+    for (const field of SETTINGS_FIELDS) {
+      const input = document.getElementById(`setting-${field.key}`);
+      if (input) values[field.key] = input.value.trim();
+    }
+    saveSettings(values);
+    saveBtn.classList.add('saved');
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => { saveBtn.classList.remove('saved'); saveBtn.textContent = 'Save'; }, 1500);
+  });
+  settingsPanel.appendChild(saveBtn);
+}
+
+const headerName = document.querySelector('.header-name');
+
+function openSettings() {
+  renderSettingsForm();
+  chatArea.style.display = 'none';
+  inputArea.style.display = 'none';
+  statusEl.style.display = 'none';
+  settingsPanel.style.display = 'flex';
+  settingsBtn.classList.add('active');
+  headerName.textContent = 'Settings';
+}
+
+function closeSettings() {
+  settingsPanel.style.display = 'none';
+  chatArea.style.display = 'flex';
+  inputArea.style.display = 'flex';
+  statusEl.style.display = '';
+  settingsBtn.classList.remove('active');
+  headerName.textContent = 'Page Chat';
+}
+
+settingsBtn.addEventListener('click', () => {
+  if (settingsPanel.style.display === 'flex') closeSettings();
+  else openSettings();
+});
+
+// ── Auto-resize textarea ─────────────────────────────────────────────────────
+
+userInput.addEventListener('input', () => {
+  userInput.style.height = 'auto';
+  userInput.style.height = Math.min(userInput.scrollHeight, 110) + 'px';
+});
+
+// ── Markdown / page utilities ────────────────────────────────────────────────
+
+const turndown = new TurndownService({
+  headingStyle:     'atx',
+  bulletListMarker: '-',
+  codeBlockStyle:   'fenced',
+  fence:            '```',
+  hr:               '---',
+  strongDelimiter:  '**',
+  emDelimiter:      '*',
+});
+
 const STRIP = [
-  'script', 'style', 'noscript',   // code & styles
-  'svg', 'canvas', 'picture',       // graphics
-  'iframe', 'frame', 'frameset',    // embeds
-  'template',                       // inert HTML templates
-  'head', 'link', 'meta',           // document infrastructure
+  'script', 'style', 'noscript', 'svg', 'canvas', 'picture',
+  'iframe', 'frame', 'frameset', 'template', 'head', 'link', 'meta',
 ].join(',');
 
 function cleanHtml(rawHtml) {
@@ -89,133 +221,166 @@ function cleanHtml(rawHtml) {
   return doc.body.innerHTML;
 }
 
-function convertToMarkdown() {
-  statusEl.textContent = 'Converting to markdown…';
-  mdPanel.classList.add('empty');
-
-  // Yield to the browser so the status update paints before the (sync) parse
-  setTimeout(() => {
-    try {
-      currentMarkdown = turndown.turndown(cleanHtml(currentHtml));
-      mdPanel.textContent = currentMarkdown;
-      mdPanel.classList.remove('empty');
-      statusEl.textContent =
-        `Markdown: ${currentMarkdown.length.toLocaleString()} chars`;
-    } catch (err) {
-      mdPanel.textContent = `Conversion error: ${err.message}`;
-      mdPanel.classList.remove('empty');
-      statusEl.textContent = 'Markdown conversion failed.';
-    }
-  }, 0);
-}
-
-// ── Copy ─────────────────────────────────────────────────────────────────────
-
-copyBtn.addEventListener('click', async () => {
-  const text = activeTab === 'markdown' ? currentMarkdown : currentHtml;
-  if (!text) {
-    statusEl.textContent = 'Nothing to copy — read a page first.';
-    return;
-  }
-  await navigator.clipboard.writeText(text);
-  statusEl.textContent = `Copied ${activeTab} to clipboard!`;
-});
-
-// ── Slack ─────────────────────────────────────────────────────────────────────
-
-const tokenInput      = document.getElementById('tokenInput');
-const channelInput    = document.getElementById('channelInput');
-const saveSettingsBtn = document.getElementById('saveSettingsBtn');
-const messageInput    = document.getElementById('messageInput');
-const charCount       = document.getElementById('charCount');
-const sendBtn         = document.getElementById('sendBtn');
-
-// Load saved settings into inputs on startup
-chrome.storage.local.get(['slackToken', 'slackChannel'], (result = {}) => {
-  if (chrome.runtime.lastError) return;
-  if (result.slackToken)   tokenInput.value   = result.slackToken;
-  if (result.slackChannel) channelInput.value = result.slackChannel;
-});
-
-// Persist settings whenever an input changes
-function saveSlackSettings() {
-  const token   = tokenInput.value.trim();
-  const channel = channelInput.value.trim();
-  if (!token && !channel) return;
-  chrome.storage.local.set({ slackToken: token, slackChannel: channel });
-}
-
-tokenInput.addEventListener('change',   saveSlackSettings);
-channelInput.addEventListener('change', saveSlackSettings);
-
-saveSettingsBtn.addEventListener('click', () => {
-  const token   = tokenInput.value.trim();
-  const channel = channelInput.value.trim();
-  if (!token || !channel) {
-    statusEl.textContent = 'Enter both a token and a channel ID before saving.';
-    return;
-  }
-  chrome.storage.local.set({ slackToken: token, slackChannel: channel }, () => {
-    if (chrome.runtime.lastError) {
-      statusEl.textContent = `Save failed: ${chrome.runtime.lastError.message}`;
-      return;
-    }
-    statusEl.textContent = 'Slack settings saved.';
+async function fetchPageMarkdown() {
+  statusEl.textContent = 'Reading page…';
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => document.documentElement.outerHTML,
   });
+  const html = results[0].result;
+
+  statusEl.textContent = 'Parsing…';
+  await new Promise(r => setTimeout(r, 0)); // let status paint
+  currentMarkdown = turndown.turndown(cleanHtml(html));
+
+  const shortUrl = tab.url.length > 55 ? tab.url.slice(0, 55) + '…' : tab.url;
+  statusEl.textContent = `Page loaded · ${shortUrl}`;
+}
+
+// ── Refresh button ───────────────────────────────────────────────────────────
+
+refreshBtn.addEventListener('click', async () => {
+  if (isBusy) return;
+  currentMarkdown = '';
+  conversationHistory = [];
+  // Clear chat, restore welcome
+  chatArea.innerHTML = '';
+  chatArea.appendChild(welcome);
+  statusEl.textContent = 'Page cleared — send a message to re-read it.';
 });
 
-messageInput.addEventListener('input', () => {
-  charCount.textContent = `${messageInput.value.length} chars`;
+// ── Chat UI helpers ──────────────────────────────────────────────────────────
+
+function hideWelcome() {
+  if (welcome.isConnected) welcome.remove();
+}
+
+/** Appends a bubble and returns the bubble element (for streaming updates). */
+function addMessage(role, content) {
+  hideWelcome();
+  const wrap   = document.createElement('div');
+  wrap.className = `message ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+  chatArea.appendChild(wrap);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return bubble;
+}
+
+/** Appends an animated typing indicator and returns its wrapper element. */
+function addTypingIndicator() {
+  hideWelcome();
+  const wrap   = document.createElement('div');
+  wrap.className = 'message assistant';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble typing-dots';
+  bubble.innerHTML = '<span></span><span></span><span></span>';
+  wrap.appendChild(bubble);
+  chatArea.appendChild(wrap);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return wrap;
+}
+
+// ── Send message ─────────────────────────────────────────────────────────────
+
+sendBtn.addEventListener('click', sendMessage);
+
+userInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
-sendBtn.addEventListener('click', async () => {
-  const text    = messageInput.value.trim();
-  const token   = tokenInput.value.trim();
-  const channel = channelInput.value.trim();
+async function sendMessage() {
+  const question = userInput.value.trim();
+  if (!question || isBusy) return;
 
-  if (!text) {
-    statusEl.textContent = 'Type a message first.';
-    return;
-  }
-  if (!token || !channel) {
-    statusEl.textContent = 'Enter your bot token and channel ID above.';
-    return;
-  }
-
+  isBusy = true;
   sendBtn.disabled = true;
-  statusEl.textContent = 'Sending…';
+  userInput.value = '';
+  userInput.style.height = 'auto';
+
+  addMessage('user', question);
+  let typingEl = addTypingIndicator();
 
   try {
-    const res = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ channel, text }),
+    // Auto-fetch page if we don't have it yet
+    if (!currentMarkdown) {
+      await fetchPageMarkdown();
+      // Reset conversation when page context changes
+      conversationHistory = [];
+    }
+
+    // Seed the system message on the first turn
+    if (conversationHistory.length === 0) {
+      conversationHistory.push({
+        role:    'system',
+        content: `You are a helpful, friendly assistant. The user is viewing a web page. Answer their questions based on the page content below. Be concise and clear.\n\n---\n\n${currentMarkdown}`,
+      });
+    }
+
+    conversationHistory.push({ role: 'user', content: question });
+    statusEl.textContent = 'Thinking…';
+
+    const res = await fetch('http://localhost:11434/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        model:    modelToUse,
+        messages: conversationHistory,
+        stream:   true,
+      }),
     });
 
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(`Ollama error ${res.status}: ${res.statusText}`);
 
-    messageInput.value = '';
-    charCount.textContent = '0 chars';
-    statusEl.textContent = 'Message sent!';
+    // Swap typing indicator for a real bubble
+    typingEl.remove();
+    typingEl = null;
+    const aiBubble = addMessage('assistant', '');
+
+    let fullResponse = '';
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const lines = decoder.decode(value).split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          if (data.message?.content) {
+            fullResponse += data.message.content;
+            aiBubble.textContent = fullResponse;
+            chatArea.scrollTop = chatArea.scrollHeight;
+          }
+          if (data.done) {
+            const secs = data.total_duration
+              ? (data.total_duration / 1e9).toFixed(1)
+              : '?';
+            statusEl.textContent = `Done · ${secs}s`;
+          }
+        } catch { /* skip non-JSON lines */ }
+      }
+    }
+
+    conversationHistory.push({ role: 'assistant', content: fullResponse });
+
   } catch (err) {
-    statusEl.textContent = `Slack error: ${err.message}`;
+    typingEl?.remove();
+    addMessage('assistant', `Something went wrong: ${err.message}`);
+    statusEl.textContent = 'Error — is Ollama running?';
+    // Roll back the user turn so history stays consistent
+    if (conversationHistory.at(-1)?.role === 'user') conversationHistory.pop();
   } finally {
+    isBusy = false;
     sendBtn.disabled = false;
+    userInput.focus();
   }
-});
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function resetPanels() {
-  currentHtml     = '';
-  currentMarkdown = '';
-
-  htmlPanel.textContent = '';
-  htmlPanel.classList.add('empty');
-  mdPanel.textContent = '';
-  mdPanel.classList.add('empty');
 }
