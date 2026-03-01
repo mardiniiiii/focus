@@ -100,7 +100,7 @@ document.addEventListener('click', (e) => {
     // Check if the background service worker left a scheduled prompt to auto-send
     await checkAndFirePendingPrompt();
   } catch {
-    statusEl.textContent = 'Ollama not running — start it first.';
+    statusEl.textContent = 'Ollama not running — start it first with: OLLAMA_ORIGINS=* ollama serve';
     modelBadge.textContent = 'offline';
   }
 })();
