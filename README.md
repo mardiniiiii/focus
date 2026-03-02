@@ -8,7 +8,7 @@ evan the workaround mcp server as our small ollama model did not support it & re
 
 # HOW TO RUN!!!!!
 
-- ```git clone https://github.com/evan-gan/sucof.git```
+- ```git clone https://github.com/evan-gan/focus.git```
 - create a chrome extension on any Chromium browser at ```chrome://extentions```
 - download ollama and download gemma3:1b
 - create a slack bot on api.slack.com
